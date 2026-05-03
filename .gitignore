@@ -6,6 +6,17 @@ yarn-debug.log*
 yarn-error.log*
 lerna-debug.log*
 
+# Test results
+test-results/
+playwright-report/
+
+# OS
+.DS_Store
+Thumbs.db
+
+dist/
+build/
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
@@ -69,6 +80,13 @@ web_modules/
 .env
 .env.*
 !.env.example
+.env.local
+
+# Database files
+data/
+*.db
+*.db-wal
+*.db-shm
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
