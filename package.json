@@ -10,7 +10,10 @@
     "start": "node src/app.js",
     "dev": "nodemon src/app.js",
     "test": "npx playwright test",
-    "test:report": "npx playwright test --reporter=html"
+    "test:headed": "npx playwright test --headed",
+    "test:debug": "DEBUG_TESTS=true npx playwright test --debug",
+    "test:report": "npx playwright show-report",
+    "test:ci": "CI=true npx playwright test"
   },
   "repository": {
     "type": "git",
