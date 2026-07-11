@@ -1,0 +1,19 @@
+# Create .dockerignore to exclude unnecessary files
+cat > .dockerignore << 'EOF'
+node_modules
+.env
+.env.*
+data/
+*.db
+*.db-wal
+*.db-shm
+tests/
+playwright-report/
+test-results/
+.git
+.gitignore
+README.md
+docker-compose.yml
+Jenkinsfile
+playwright.config.js
+EOF
