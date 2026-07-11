@@ -116,41 +116,42 @@ pipeline {
         // package.json is valid and all deps are available.
         // ──────────────────────────────────────────────────────────
         stage('📦 Build') {
-            steps {
-                echo '📦 Installing dependencies...'
+    steps {
+        echo '📦 Installing dependencies...'
 
-                sh '''
-                    # Use npm ci instead of npm install in CI
-                    # WHY: npm ci is faster, more reliable, and uses
-                    # package-lock.json exactly — no version surprises
-                    npm ci
+        // ADD THIS BLOCK — installs make and g++ before npm ci
+        sh '''
+            echo "Installing build tools..."
+            apt-get update -qq
+            apt-get install -y make g++ gcc python3 2>/dev/null || true
+            make --version
+            echo "✅ Build tools ready"
+        '''
 
-                    echo ""
-                    echo "✅ Dependencies installed successfully"
-                    echo "   Packages: $(ls node_modules | wc -l) modules"
-                    echo "   Size: $(du -sh node_modules | cut -f1)"
-                '''
+        sh '''
+            npm ci
+            echo "✅ Dependencies installed successfully"
+        '''
 
-                // Verify the app can start (syntax check)
-                sh '''
-                    echo "Checking application syntax..."
-                    node --check src/app.js
-                    node --check src/database.js
-                    node --check src/routes/tasks.js
-                    node --check src/middleware/metrics.js
-                    echo "✅ All files pass syntax check"
-                '''
-            }
+        sh '''
+            echo "Checking application syntax..."
+            node --check src/app.js
+            node --check src/database.js
+            node --check src/routes/tasks.js
+            node --check src/middleware/metrics.js
+            echo "✅ All files pass syntax check"
+        '''
+    }
 
-            post {
-                failure {
-                    echo '❌ Build stage failed — dependency installation error'
-                }
-                success {
-                    echo '✅ Build stage passed'
-                }
-            }
+    post {
+        failure {
+            echo '❌ Build stage failed — dependency installation error'
         }
+        success {
+            echo '✅ Build stage passed'
+        }
+    }
+}
 
         // ──────────────────────────────────────────────────────────
         // STAGE 2: Test
