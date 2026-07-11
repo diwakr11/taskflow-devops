@@ -416,7 +416,8 @@ sh """
         failure {
             echo '❌ Deployment failed — previous version still running'
         }
-    }// end stages
+    }
+}// end stages
 
     // ══════════════════════════════════════════════════════════════
     // POST — Runs after ALL stages complete (pass or fail)
@@ -479,4 +480,5 @@ sh """
         }
     }
 
+}
 } // end pipeline
