@@ -295,33 +295,46 @@ sh '''
                     // Smoke test the Docker image before pushing
                     // WHY: Verify the image actually runs before
                     // pushing it and deploying it to production
-                    sh """
-                        echo "Running container smoke test..."
+sh """
+    echo "Running container smoke test..."
 
-                        # Start the container
-                        docker run -d \
-                            --name taskflow-test-\${BUILD_NUMBER} \
-                            -p 3002:3000 \
-                            -e NODE_ENV=production \
-                            ${env.DOCKER_VERSIONED}
+    # Start the container
+    docker run -d \
+        --name taskflow-test-\${BUILD_NUMBER} \
+        -p 3002:3000 \
+        -e NODE_ENV=production \
+        ${env.DOCKER_VERSIONED}
 
-                        # Wait for startup
-                        sleep 5
+    # Wait for startup
+    sleep 8
 
-                        # Hit the health endpoint
-                        HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3002/health)
+    # Get container's actual IP address
+    # WHY: Jenkins runs in a container — 'localhost' refers to Jenkins
+    # container, not the host. We need the test container's own IP.
+    CONTAINER_IP=\$(docker inspect \
+        --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+        taskflow-test-\${BUILD_NUMBER})
 
-                        # Stop and remove test container
-                        docker stop taskflow-test-\${BUILD_NUMBER}
-                        docker rm taskflow-test-\${BUILD_NUMBER}
+    echo "Container IP: \$CONTAINER_IP"
 
-                        if [ "\$HTTP_STATUS" = "200" ]; then
-                            echo "✅ Container smoke test passed (HTTP 200)"
-                        else
-                            echo "❌ Container smoke test FAILED (HTTP \$HTTP_STATUS)"
-                            exit 1
-                        fi
-                    """
+    # Hit the health endpoint using container IP directly
+    HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
+        --max-time 10 \
+        http://\$CONTAINER_IP:3000/health)
+
+    # Stop and remove test container
+    docker stop taskflow-test-\${BUILD_NUMBER}
+    docker rm taskflow-test-\${BUILD_NUMBER}
+
+    echo "Health check status: \$HTTP_STATUS"
+
+    if [ "\$HTTP_STATUS" = "200" ]; then
+        echo "✅ Container smoke test passed (HTTP 200)"
+    else
+        echo "❌ Container smoke test FAILED (HTTP \$HTTP_STATUS)"
+        exit 1
+    fi
+"""
 
                     // Push both tags to Docker Hub
                     sh """
