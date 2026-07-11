@@ -381,91 +381,43 @@ sh """
         //  stage will be fully active then)
         // ──────────────────────────────────────────────────────────
         stage('🚀 Deploy to EC2') {
-            // WHY: Only deploy from main branch — feature branches
-            // should NEVER auto-deploy to production
-            when {
-                branch 'main'
-            }
+    when {
+        branch 'master'
+    }
 
-            steps {
-                echo '🚀 Deploying to EC2...'
+    steps {
+        echo '🚀 Deploying to EC2 App Server...'
 
-                sshagent(['ec2-ssh-key']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no \
-                            ${EC2_USER}@${EC2_HOST} \
-                            'bash -s' << 'ENDSSH'
+        sshagent(['ec2-ssh-key']) {
+            sh """
+                echo "Deploying ${env.DOCKER_VERSIONED} to EC2..."
 
-                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-                        echo "  Starting deployment..."
-                        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-                        # Pull latest image
-                        docker pull ${DOCKER_LATEST}
-
-                        # Zero-downtime swap:
-                        # 1. Start NEW container on temp port
-                        docker run -d \
-                            --name taskflow-new \
-                            -p 3001:3000 \
-                            -e NODE_ENV=production \
-                            -e PORT=3000 \
-                            --restart unless-stopped \
-                            ${DOCKER_LATEST}
-
-                        # 2. Wait for new container to be healthy
-                        sleep 5
-                        NEW_HEALTH=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3001/health)
-
-                        if [ "\$NEW_HEALTH" != "200" ]; then
-                            echo "❌ New container failed health check"
-                            docker stop taskflow-new && docker rm taskflow-new
-                            exit 1
-                        fi
-
-                        echo "✅ New container is healthy"
-
-                        # 3. Stop and remove old container
-                        docker stop taskflow-app 2>/dev/null || true
-                        docker rm taskflow-app 2>/dev/null || true
-
-                        # 4. Rename new to production name on correct port
-                        docker stop taskflow-new
-                        docker rm taskflow-new
-
-                        docker run -d \
-                            --name taskflow-app \
-                            -p 3000:3000 \
-                            -e NODE_ENV=production \
-                            -e PORT=3000 \
-                            -v /home/ubuntu/data:/app/data \
-                            --restart unless-stopped \
-                            ${DOCKER_LATEST}
-
-                        # 5. Clean up old images
-                        docker image prune -f
-
-                        echo ""
-                        echo "✅ Deployment complete!"
-                        echo "   Running containers:"
-                        docker ps --filter name=taskflow
-
-ENDSSH
-                    """
-                }
-            }
-
-            post {
-                success {
-                    echo "✅ Deploy stage passed — app live at http://${EC2_HOST}:3000"
-                }
-                failure {
-                    echo '❌ Deploy stage failed — previous version still running'
-                }
-            }
+                ssh -o StrictHostKeyChecking=no \
+                    -o ConnectTimeout=30 \
+                    ${EC2_USER}@${EC2_HOST} \
+                    '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
+            """
         }
 
-    } // end stages
+        echo "✅ Deployment complete!"
+    }
+
+    post {
+        success {
+            echo """
+            ✅ DEPLOYED SUCCESSFULLY
+            ────────────────────────────────
+            App URL: http://${EC2_HOST}:3000
+            Health:  http://${EC2_HOST}:3000/health
+            Image:   ${env.DOCKER_VERSIONED}
+            ────────────────────────────────
+            """
+        }
+        failure {
+            echo '❌ Deployment failed — previous version still running'
+        }
+    }
+} // end stages
 
     // ══════════════════════════════════════════════════════════════
     // POST — Runs after ALL stages complete (pass or fail)
