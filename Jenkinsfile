@@ -160,21 +160,20 @@ pipeline {
         echo '🧪 Running Playwright API tests...'
 
         sh '''
-            # Create test results directory
-            mkdir -p test-results playwright-report
+    # Create test results directory
+    mkdir -p test-results playwright-report
 
-            # Install Playwright browsers only (no system deps)
-            # WHY: System deps already installed in container via docker exec
-            npx playwright install chromium
-            echo "✅ Playwright browsers ready"
-        '''
+    # Use LOCAL playwright installation (not npx global)
+    # WHY: Ensures exact version from package.json is used
+    ./node_modules/.bin/playwright install chromium
+    echo "✅ Playwright browsers ready"
+'''
 
-        sh '''
-            # Run the full test suite
-            CI=true npm test || true
+sh '''
+    CI=true ./node_modules/.bin/playwright test || true
+    echo "✅ Tests complete — check report for results"
+'''
 
-            echo "✅ Tests complete — check report for results"
-        '''
     }
 
     post {
