@@ -116,39 +116,39 @@ pipeline {
         // package.json is valid and all deps are available.
         // ──────────────────────────────────────────────────────────
         stage('📦 Build') {
-    steps {
-        echo '📦 Installing dependencies...'
+            steps {
+                echo '📦 Installing dependencies...'
 
-        sh '''
-            echo "Node version: $(node --version)"
-            echo "npm version: $(npm --version)"
+                sh '''
+                    echo "Node version: $(node --version)"
+                    echo "npm version: $(npm --version)"
 
-            npm ci
+                    npm ci
 
-            echo ""
-            echo "✅ Dependencies installed successfully"
-            echo "   Packages: $(ls node_modules | wc -l) modules"
-        '''
+                    echo ""
+                    echo "✅ Dependencies installed successfully"
+                    echo "   Packages: $(ls node_modules | wc -l) modules"
+                '''
 
-        sh '''
-            echo "Checking application syntax..."
-            node --check src/app.js
-            node --check src/database.js
-            node --check src/routes/tasks.js
-            node --check src/middleware/metrics.js
-            echo "✅ All files pass syntax check"
-        '''
-    }
+                sh '''
+                    echo "Checking application syntax..."
+                    node --check src/app.js
+                    node --check src/database.js
+                    node --check src/routes/tasks.js
+                    node --check src/middleware/metrics.js
+                    echo "✅ All files pass syntax check"
+                '''
+            }
 
-    post {
-        failure {
-            echo '❌ Build stage failed — dependency installation error'
+            post {
+                failure {
+                    echo '❌ Build stage failed — dependency installation error'
+                }
+                success {
+                    echo '✅ Build stage passed'
+                }
+            }
         }
-        success {
-            echo '✅ Build stage passed'
-        }
-    }
-}
 
         // ──────────────────────────────────────────────────────────
         // STAGE 2: Test
@@ -156,72 +156,71 @@ pipeline {
         // an image if the code is broken. Fail fast = save time.
         // ──────────────────────────────────────────────────────────
         stage('🧪 Test') {
-    steps {
-        echo '🧪 Running Playwright API tests...'
+            steps {
+                echo '🧪 Running Playwright API tests...'
 
-        sh '''
-    # Create test results directory
-    mkdir -p test-results playwright-report
+                sh '''
+                    # Create test results directory
+                    mkdir -p test-results playwright-report
 
-    # Use LOCAL playwright installation (not npx global)
-    # WHY: Ensures exact version from package.json is used
-    ./node_modules/.bin/playwright install chromium
-    echo "✅ Playwright browsers ready"
-'''
+                    # Use LOCAL playwright installation (not npx global)
+                    # WHY: Ensures exact version from package.json is used
+                    ./node_modules/.bin/playwright install chromium
+                    echo "✅ Playwright browsers ready"
+                '''
 
-sh '''
-    CI=true ./node_modules/.bin/playwright test || true
-    echo "✅ Tests complete — check report for results"
-'''
+                sh '''
+                    CI=true ./node_modules/.bin/playwright test || true
+                    echo "✅ Tests complete — check report for results"
+                '''
+            }
 
-    }
+            post {
+                always {
+                    script {
+                        // Check if JUnit XML exists before publishing
+                        def junitFile = 'test-results/junit.xml'
+                        if (fileExists(junitFile)) {
+                            junit(
+                                testResults: 'test-results/junit.xml',
+                                allowEmptyResults: true,
+                                skipPublishingChecks: false
+                            )
+                        } else {
+                            echo '⚠️ No JUnit XML found — tests may not have run'
+                        }
+                    }
 
-    post {
-        always {
-            script {
-                // Check if JUnit XML exists before publishing
-                def junitFile = 'test-results/junit.xml'
-                if (fileExists(junitFile)) {
-                    junit(
-                        testResults: 'test-results/junit.xml',
-                        allowEmptyResults: true,
-                        skipPublishingChecks: false
+                    // Publish HTML report if it exists
+                    script {
+                        if (fileExists('playwright-report/index.html')) {
+                            publishHTML([
+                                allowMissing: true,
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                reportDir: 'playwright-report',
+                                reportFiles: 'index.html',
+                                reportName: 'Playwright Test Report',
+                                reportTitles: 'API Test Results'
+                            ])
+                        }
+                    }
+
+                    archiveArtifacts(
+                        artifacts: 'test-results/**/*',
+                        allowEmptyArchive: true
                     )
-                } else {
-                    echo '⚠️ No JUnit XML found — tests may not have run'
+                }
+
+                failure {
+                    echo '❌ Test stage FAILED — check Playwright Test Report'
+                }
+
+                success {
+                    echo '✅ Test stage passed — all tests green'
                 }
             }
-
-            // Publish HTML report if it exists
-            script {
-                if (fileExists('playwright-report/index.html')) {
-                    publishHTML([
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'playwright-report',
-                        reportFiles: 'index.html',
-                        reportName: 'Playwright Test Report',
-                        reportTitles: 'API Test Results'
-                    ])
-                }
-            }
-
-            archiveArtifacts(
-                artifacts: 'test-results/**/*',
-                allowEmptyArchive: true
-            )
         }
-
-        failure {
-            echo '❌ Test stage FAILED — check Playwright Test Report'
-        }
-
-        success {
-            echo '✅ Test stage passed — all tests green'
-        }
-    }
-}
 
         // ──────────────────────────────────────────────────────────
         // STAGE 3: Code Quality (Optional but professional)
@@ -295,46 +294,44 @@ sh '''
                     // Smoke test the Docker image before pushing
                     // WHY: Verify the image actually runs before
                     // pushing it and deploying it to production
-sh """
-    echo "Running container smoke test..."
+                    sh """
+                        echo "Running container smoke test..."
 
-    # Start the container
-    docker run -d \
-        --name taskflow-test-\${BUILD_NUMBER} \
-        -p 3002:3000 \
-        -e NODE_ENV=production \
-        ${env.DOCKER_VERSIONED}
+                        # Start the container
+                        docker run -d \
+                            --name taskflow-test-\${BUILD_NUMBER} \
+                            -p 3002:3000 \
+                            -e NODE_ENV=production \
+                            ${env.DOCKER_VERSIONED}
 
-    # Wait for startup
-    sleep 8
+                        # Wait for startup
+                        sleep 8
 
-    # Get container's actual IP address
-    # WHY: Jenkins runs in a container — 'localhost' refers to Jenkins
-    # container, not the host. We need the test container's own IP.
-    CONTAINER_IP=\$(docker inspect \
-        --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
-        taskflow-test-\${BUILD_NUMBER})
+                        # Get container's actual IP address
+                        CONTAINER_IP=\$(docker inspect \
+                            --format='{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \
+                            taskflow-test-\${BUILD_NUMBER})
 
-    echo "Container IP: \$CONTAINER_IP"
+                        echo "Container IP: \$CONTAINER_IP"
 
-    # Hit the health endpoint using container IP directly
-    HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
-        --max-time 10 \
-        http://\$CONTAINER_IP:3000/health)
+                        # Hit the health endpoint using container IP directly
+                        HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
+                            --max-time 10 \
+                            http://\$CONTAINER_IP:3000/health)
 
-    # Stop and remove test container
-    docker stop taskflow-test-\${BUILD_NUMBER}
-    docker rm taskflow-test-\${BUILD_NUMBER}
+                        # Stop and remove test container
+                        docker stop taskflow-test-\${BUILD_NUMBER}
+                        docker rm taskflow-test-\${BUILD_NUMBER}
 
-    echo "Health check status: \$HTTP_STATUS"
+                        echo "Health check status: \$HTTP_STATUS"
 
-    if [ "\$HTTP_STATUS" = "200" ]; then
-        echo "✅ Container smoke test passed (HTTP 200)"
-    else
-        echo "❌ Container smoke test FAILED (HTTP \$HTTP_STATUS)"
-        exit 1
-    fi
-"""
+                        if [ "\$HTTP_STATUS" = "200" ]; then
+                            echo "✅ Container smoke test passed (HTTP 200)"
+                        else
+                            echo "❌ Container smoke test FAILED (HTTP \$HTTP_STATUS)"
+                            exit 1
+                        fi
+                    """
 
                     // Push both tags to Docker Hub
                     sh """
@@ -377,47 +374,46 @@ sh """
         // STAGE 5: Deploy to EC2
         // WHY: Pull the verified image onto the EC2 app server
         // and do a zero-downtime container swap.
-        // (We'll configure the EC2 app server on Day 5 — this
-        //  stage will be fully active then)
         // ──────────────────────────────────────────────────────────
         stage('🚀 Deploy to EC2') {
-    when {
-        branch 'master'
-    }
+            when {
+                branch 'master'
+            }
 
-    steps {
-        echo '🚀 Deploying to EC2 App Server...'
+            steps {
+                echo '🚀 Deploying to EC2 App Server...'
 
-        sshagent(['ec2-ssh-key']) {
-            sh """
-                echo "Deploying ${env.DOCKER_VERSIONED} to EC2..."
+                sshagent(['ec2-ssh-key']) {
+                    sh """
+                        echo "Deploying ${env.DOCKER_VERSIONED} to EC2..."
 
-                ssh -o StrictHostKeyChecking=no \
-                    -o ConnectTimeout=30 \
-                    ${EC2_USER}@${EC2_HOST} \
-                    '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
-            """
+                        ssh -o StrictHostKeyChecking=no \
+                            -o ConnectTimeout=30 \
+                            ${EC2_USER}@${EC2_HOST} \
+                            '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
+                    """
+                }
+
+                echo "✅ Deployment complete!"
+            }
+
+            post {
+                success {
+                    echo """
+                    ✅ DEPLOYED SUCCESSFULLY
+                    ────────────────────────────────
+                    App URL: http://${EC2_HOST}:3000
+                    Health:  http://${EC2_HOST}:3000/health
+                    Image:   ${env.DOCKER_VERSIONED}
+                    ────────────────────────────────
+                    """
+                }
+                failure {
+                    echo '❌ Deployment failed — previous version still running'
+                }
+            }
         }
-
-        echo "✅ Deployment complete!"
-    }
-
-    post {
-        success {
-            echo """
-            ✅ DEPLOYED SUCCESSFULLY
-            ────────────────────────────────
-            App URL: http://${EC2_HOST}:3000
-            Health:  http://${EC2_HOST}:3000/health
-            Image:   ${env.DOCKER_VERSIONED}
-            ────────────────────────────────
-            """
-        }
-        failure {
-            echo '❌ Deployment failed — previous version still running'
-        }
-    }
-}// end stages
+    } // end stages
 
     // ══════════════════════════════════════════════════════════════
     // POST — Runs after ALL stages complete (pass or fail)
@@ -480,5 +476,4 @@ sh """
         }
     }
 
-}
 } // end pipeline
