@@ -1,0 +1,167 @@
+# docker-compose.yml
+# WHY: Defines the complete local development stack
+# 'docker-compose up' starts everything in the right order
+
+# ── Named Volumes ──────────────────────────────────────────
+# WHY: Named volumes persist data between container restarts
+# If you delete and recreate containers, data survives
+volumes:
+  taskflow-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+# ── Networks ───────────────────────────────────────────────
+# WHY: Isolated network means containers can talk to each other
+# by service name (e.g., 'taskflow-app:3000') but are
+# isolated from other Docker networks on your machine
+networks:
+  taskflow-network:
+    driver: bridge
+
+# ── Services ───────────────────────────────────────────────
+services:
+
+  # ── TaskFlow Application ─────────────────────────────────
+  taskflow-app:
+    # Build from local Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        BUILD_DATE: ${BUILD_DATE:-local}
+        BUILD_NUMBER: ${BUILD_NUMBER:-0}
+        GIT_COMMIT: ${GIT_COMMIT:-local}
+
+    # Container name
+    container_name: taskflow-app
+
+    # Port mapping: host:container
+    ports:
+      - "3000:3000"
+
+    # Environment variables
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3000
+      - DB_PATH=/app/data/taskflow.db
+
+    # Mount SQLite data directory
+    # WHY: Database persists even if container is recreated
+    volumes:
+      - taskflow-data:/app/data
+
+    # Connect to network
+    networks:
+      - taskflow-network
+
+    # Restart policy
+    # WHY: Auto-restart if container crashes
+    restart: unless-stopped
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    # Resource limits
+    # WHY: Prevents one container from hogging all resources
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # ── Prometheus ───────────────────────────────────────────
+  # WHY: Scrapes and stores metrics from our app
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+
+    ports:
+      - "9090:9090"
+
+    # Mount our config file
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+    # Command line arguments
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+
+    networks:
+      - taskflow-network
+
+    restart: unless-stopped
+
+    # Start after app is healthy
+    depends_on:
+      taskflow-app:
+        condition: service_healthy
+
+  # ── Grafana ──────────────────────────────────────────────
+  # WHY: Visualizes Prometheus metrics in dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+
+    ports:
+      - "3001:3000"
+
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=taskflow123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # Auto-configure datasource and dashboards
+      - GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    networks:
+      - taskflow-network
+
+    restart: unless-stopped
+
+    depends_on:
+      - prometheus
+
+  # ── Node Exporter ────────────────────────────────────────
+  # WHY: Exports host system metrics (CPU, RAM, disk, network)
+  # Combined with app metrics = complete observability
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+
+    ports:
+      - "9100:9100"
+
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+
+    networks:
+      - taskflow-network
+
+    restart: unless-stopped

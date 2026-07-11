@@ -1,19 +1,52 @@
-# Create .dockerignore to exclude unnecessary files
 cat > .dockerignore << 'EOF'
+# Dependencies
 node_modules
+npm-debug.log*
+
+# Environment files
 .env
 .env.*
+!.env.example
+
+# Database files
 data/
 *.db
 *.db-wal
 *.db-shm
+
+# Test files
 tests/
 playwright-report/
 test-results/
+playwright.config.js
+
+# Git
 .git
 .gitignore
-README.md
-docker-compose.yml
+.gitattributes
+
+# CI/CD
 Jenkinsfile
-playwright.config.js
+
+# Docker
+docker-compose*.yml
+.dockerignore
+
+# Docs
+README.md
+*.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Monitoring configs (mounted as volumes, not baked in)
+monitoring/
+scripts/
 EOF
+
+echo "✅ .dockerignore created"

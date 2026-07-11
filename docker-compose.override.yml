@@ -1,0 +1,24 @@
+# docker-compose.override.yml
+# WHY: Automatically merged with docker-compose.yml in development
+# Production deployments use docker-compose.yml alone
+# This file is gitignored (contains dev-only settings
+
+services:
+  taskflow-app:
+    # Override: build fresh every time in dev
+    build:
+      target: runner
+
+    # Override: mount source code for hot reload
+    volumes:
+      - taskflow-data:/app/data
+      - ./src:/app/src:ro    # Live code mounting
+
+    # Override: development environment
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - DB_PATH=/app/data/taskflow.db
+
+    # Override: use nodemon for hot reload in dev
+    command: ["node", "src/app.js"]

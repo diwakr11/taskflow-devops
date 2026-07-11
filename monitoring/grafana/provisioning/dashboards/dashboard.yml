@@ -1,0 +1,16 @@
+# monitoring/grafana/provisioning/dashboards/dashboard.yml
+# WHY: Tells Grafana WHERE to find dashboard JSON files
+# Dashboards are auto-loaded on startup
+
+apiVersion: 1
+
+providers:
+  - name: 'TaskFlow Dashboards'
+    orgId: 1
+    folder: 'TaskFlow'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

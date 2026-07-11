@@ -1,0 +1,56 @@
+# monitoring/prometheus/prometheus.yml
+# WHY: Prometheus pulls (scrapes) metrics from targets
+# Rather than apps pushing metrics to Prometheus
+# This is called the "pull model" — more reliable at scale
+
+global:
+  # How often to scrape targets
+  scrape_interval: 15s
+  # How often to evaluate alerting rules
+  evaluation_interval: 15s
+  # Label added to all metrics from this Prometheus instance
+  external_labels:
+    monitor: 'taskflow-monitor'
+    environment: 'development'
+
+# Alerting configuration (we'll add rules on Day 7)
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
+
+# Rules files (Day 7)
+rule_files: []
+
+# Scrape configurations
+scrape_configs:
+
+  # ── Prometheus itself ──────────────────────────────────
+  # WHY: Always monitor the monitor — if Prometheus dies
+  # you want to know about it
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # ── TaskFlow Application ───────────────────────────────
+  # WHY: This is our app — the main thing we want to monitor
+  # Prometheus scrapes /metrics endpoint every 15 seconds
+  - job_name: 'taskflow-api'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    static_configs:
+      # 'taskflow-app' is the Docker Compose service name
+      # Docker's internal DNS resolves service names automatically
+      - targets: ['taskflow-app:3000']
+        labels:
+          service: 'taskflow-api'
+          version: '1.0.0'
+
+  # ── Node Exporter (System Metrics) ────────────────────
+  # WHY: App metrics + system metrics = full picture
+  # Node Exporter exposes CPU, RAM, disk, network metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'

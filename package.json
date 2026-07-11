@@ -14,7 +14,18 @@
     "dev": "nodemon src/app.js",
     "test": "node_modules/.bin/playwright test",
     "test:report": "node_modules/.bin/playwright show-report",
-    "test:ci": "CI=true node_modules/.bin/playwright test"
+    "test:ci": "CI=true node_modules/.bin/playwright test",
+
+    "docker:build": "docker build -t taskflow:local .",
+    "docker:run": "docker run -p 3000:3000 taskflow:local",
+
+    "compose:up": "docker-compose up -d",
+    "compose:down": "docker-compose down",
+    "compose:logs": "docker-compose logs -f taskflow-app",
+    "compose:ps": "docker-compose ps",
+    "compose:build": "docker-compose build --no-cache",
+    "compose:restart": "docker-compose restart taskflow-app",
+    "compose:clean": "docker-compose down -v --remove-orphans"
   },
   "repository": {
     "type": "git",

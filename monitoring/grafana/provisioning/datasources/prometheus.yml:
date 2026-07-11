@@ -1,0 +1,18 @@
+# monitoring/grafana/provisioning/datasources/prometheus.yml
+# WHY: Auto-configures Prometheus as a data source
+# No manual clicking in Grafana UI needed
+# This is "Infrastructure as Code" for monitoring
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # 'prometheus' is the Docker Compose service name
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
+    jsonData:
+      timeInterval: '15s'
+      httpMethod: POST
