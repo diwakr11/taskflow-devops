@@ -119,18 +119,15 @@ pipeline {
     steps {
         echo '📦 Installing dependencies...'
 
-        // ADD THIS BLOCK — installs make and g++ before npm ci
         sh '''
-            echo "Installing build tools..."
-            apt-get update -qq
-            apt-get install -y make g++ gcc python3 2>/dev/null || true
-            make --version
-            echo "✅ Build tools ready"
-        '''
+            echo "Node version: $(node --version)"
+            echo "npm version: $(npm --version)"
 
-        sh '''
             npm ci
+
+            echo ""
             echo "✅ Dependencies installed successfully"
+            echo "   Packages: $(ls node_modules | wc -l) modules"
         '''
 
         sh '''
