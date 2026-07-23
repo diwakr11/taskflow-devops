@@ -236,65 +236,77 @@ pipeline {
         }
 
         stage('🚀 Deploy to EC2') {
-            when {
-                anyOf {
+    when {
+        anyOf {
             branch 'master'
             branch 'origin/master'
             expression { env.GIT_BRANCH == 'origin/master' }
             expression { env.GIT_BRANCH == 'master' }
         }
-            }
-            steps {
-                echo '🚀 Deploying to EC2 App Server...'
+    }
+    steps {
+        echo '🚀 Deploying to EC2 App Server...'
 
-                sshagent(['ec2-ssh-key']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no \
-                            -o ConnectTimeout=30 \
-                            ${EC2_USER}@${EC2_HOST} \
-                            '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
-                    """
-                }
+        // Use withCredentials instead of sshagent
+        // WHY: withCredentials is built-in, no extra plugin needed
+        withCredentials([
+            sshUserPrivateKey(
+                credentialsId: 'ec2-ssh-key',
+                keyFileVariable: 'SSH_KEY',
+                usernameVariable: 'SSH_USER'
+            )
+        ]) {
+            sh """
+                # Write key to temp file with correct permissions
+                chmod 600 \$SSH_KEY
 
-                // Verify deployment via production health check
-                // WHY: Confirms the deployed app is actually serving traffic
-                sh """
-                    echo "Verifying production deployment..."
-                    sleep 5
-
-                    HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
-                        --max-time 15 \
-                        http://${EC2_HOST}:${APP_PORT}/health)
-
-                    if [ "\$HTTP_STATUS" = "200" ]; then
-                        echo "✅ Production health check passed (HTTP \$HTTP_STATUS)"
-                    else
-                        echo "❌ Production health check FAILED (HTTP \$HTTP_STATUS)"
-                        exit 1
-                    fi
-                """
-
-                echo "✅ Deployment complete!"
-            }
-            post {
-                success {
-                    echo """
-                    ✅ DEPLOYED SUCCESSFULLY
-                    ────────────────────────────────────────
-                    App URL:    http://${EC2_HOST}:${APP_PORT}
-                    Health:     http://${EC2_HOST}:${APP_PORT}/health
-                    Metrics:    http://${EC2_HOST}:${APP_PORT}/metrics
-                    Grafana:    http://${EC2_HOST}:3001
-                    Prometheus: http://${EC2_HOST}:9090
-                    Image:      ${env.DOCKER_VERSIONED}
-                    ────────────────────────────────────────
-                    """
-                }
-                failure {
-                    echo '❌ Deploy failed — previous version still running'
-                }
-            }
+                # Deploy via SSH
+                ssh -i \$SSH_KEY \
+                    -o StrictHostKeyChecking=no \
+                    -o ConnectTimeout=30 \
+                    ubuntu@${EC2_HOST} \
+                    '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
+            """
         }
+
+        // Verify production deployment
+        sh """
+            echo "Verifying production deployment..."
+            sleep 5
+
+            HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
+                --max-time 15 \
+                http://${EC2_HOST}:${APP_PORT}/health)
+
+            if [ "\$HTTP_STATUS" = "200" ]; then
+                echo "✅ Production health check passed (HTTP \$HTTP_STATUS)"
+            else
+                echo "❌ Production health check FAILED (HTTP \$HTTP_STATUS)"
+                exit 1
+            fi
+        """
+
+        echo "✅ Deployment complete!"
+    }
+    post {
+        success {
+            echo """
+            ✅ DEPLOYED SUCCESSFULLY
+            ────────────────────────────────────────
+            App URL:    http://${EC2_HOST}:${APP_PORT}
+            Health:     http://${EC2_HOST}:${APP_PORT}/health
+            Metrics:    http://${EC2_HOST}:${APP_PORT}/metrics
+            Grafana:    http://${EC2_HOST}:3001
+            Prometheus: http://${EC2_HOST}:9090
+            Image:      ${env.DOCKER_VERSIONED}
+            ────────────────────────────────────────
+            """
+        }
+        failure {
+            echo '❌ Deploy failed — previous version still running'
+        }
+    }
+}
 
     } // end stages
 
