@@ -237,7 +237,12 @@ pipeline {
 
         stage('🚀 Deploy to EC2') {
             when {
-                branch 'master'
+                anyOf {
+            branch 'master'
+            branch 'origin/master'
+            expression { env.GIT_BRANCH == 'origin/master' }
+            expression { env.GIT_BRANCH == 'master' }
+        }
             }
             steps {
                 echo '🚀 Deploying to EC2 App Server...'
