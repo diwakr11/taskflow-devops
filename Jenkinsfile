@@ -12,6 +12,7 @@ pipeline {
         DOCKERHUB_CREDS  = credentials('dockerhub-credentials')
         EC2_HOST         = credentials('ec2-app-server-ip')
         EC2_USER         = 'ubuntu'
+        SSH_KEY_PATH     = '/var/jenkins_home/.ssh/devops-key.pem'
         CI               = 'true'
     }
 
@@ -89,14 +90,18 @@ pipeline {
             steps {
                 echo '🧪 Running Playwright API tests...'
                 sh '''
-                    mkdir -p test-results playwright-report
-                    ./node_modules/.bin/playwright install chromium
-                    echo "✅ Playwright browsers ready"
-                '''
-                sh '''
-                    CI=true ./node_modules/.bin/playwright test || true
-                    echo "✅ Tests complete — check report for results"
-                '''
+    # Set Node.js memory limit
+    # WHY: Playwright + Chromium uses a lot of RAM
+    # Limiting prevents OOM killer from terminating the process
+    export NODE_OPTIONS="--max-old-space-size=512"
+
+    CI=true ./node_modules/.bin/playwright test \
+        --reporter=list,junit \
+        --workers=1 \
+        || true
+
+    echo "✅ Tests complete — check report for results"
+'''
             }
             post {
                 always {
@@ -236,77 +241,70 @@ pipeline {
         }
 
         stage('🚀 Deploy to EC2') {
-    when {
-        anyOf {
-            branch 'master'
-            branch 'origin/master'
-            expression { env.GIT_BRANCH == 'origin/master' }
-            expression { env.GIT_BRANCH == 'master' }
+            when {
+                anyOf {
+                    branch 'master'
+                    expression { env.GIT_BRANCH == 'origin/master' }
+                }
+            }
+            steps {
+                echo '🚀 Deploying to EC2 App Server...'
+
+                // WHY Fix 4: Using key file directly from Jenkins container
+                // avoids SSH Agent plugin dependency and credential format issues
+                sh """
+                    echo "Verifying SSH key exists..."
+                    ls -la ${SSH_KEY_PATH}
+
+                    echo "Deploying ${DOCKER_LATEST} to EC2..."
+                    ssh -i ${SSH_KEY_PATH} \
+                        -o StrictHostKeyChecking=no \
+                        -o ConnectTimeout=30 \
+                        -o BatchMode=yes \
+                        ${EC2_USER}@\${EC2_HOST} \
+                        '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
+                """
+
+                // Verify production deployment health
+                sh """
+                    echo "Verifying production deployment..."
+                    sleep 5
+
+                    HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
+                        --max-time 15 \
+                        http://\${EC2_HOST}:${APP_PORT}/health)
+
+                    echo "Production health check: HTTP \$HTTP_STATUS"
+
+                    if [ "\$HTTP_STATUS" = "200" ]; then
+                        echo "✅ Production health check passed (HTTP \$HTTP_STATUS)"
+                    else
+                        echo "❌ Production health check FAILED (HTTP \$HTTP_STATUS)"
+                        exit 1
+                    fi
+                """
+
+                echo "✅ Deployment complete!"
+            }
+            post {
+                success {
+                    sh """
+                        echo "✅ DEPLOYED SUCCESSFULLY"
+                        echo "────────────────────────────────────────"
+                        echo "App URL:    http://\${EC2_HOST}:${APP_PORT}"
+                        echo "Health:     http://\${EC2_HOST}:${APP_PORT}/health"
+                        echo "Metrics:    http://\${EC2_HOST}:${APP_PORT}/metrics"
+                        echo "Grafana:    http://\${EC2_HOST}:3001"
+                        echo "Prometheus: http://\${EC2_HOST}:9090"
+                        echo "Image:      ${env.DOCKER_VERSIONED}"
+                        echo "────────────────────────────────────────"
+                    """
+                }
+                failure {
+                    echo '❌ Deploy failed — previous version still running'
+                }
+            }
         }
-    }
-    steps {
-        echo '🚀 Deploying to EC2 App Server...'
-
-        // Use withCredentials instead of sshagent
-        // WHY: withCredentials is built-in, no extra plugin needed
-        withCredentials([
-            sshUserPrivateKey(
-                credentialsId: 'ec2-ssh-key',
-                keyFileVariable: 'SSH_KEY',
-                usernameVariable: 'SSH_USER'
-            )
-        ]) {
-            sh """
-                # Write key to temp file with correct permissions
-                chmod 600 \$SSH_KEY
-
-                # Deploy via SSH
-                ssh -i \$SSH_KEY \
-                    -o StrictHostKeyChecking=no \
-                    -o ConnectTimeout=30 \
-                    ubuntu@${EC2_HOST} \
-                    '/home/ubuntu/taskflow/deploy.sh ${DOCKER_LATEST}'
-            """
-        }
-
-        // Verify production deployment
-        sh """
-            echo "Verifying production deployment..."
-            sleep 5
-
-            HTTP_STATUS=\$(curl -s -o /dev/null -w '%{http_code}' \
-                --max-time 15 \
-                http://${EC2_HOST}:${APP_PORT}/health)
-
-            if [ "\$HTTP_STATUS" = "200" ]; then
-                echo "✅ Production health check passed (HTTP \$HTTP_STATUS)"
-            else
-                echo "❌ Production health check FAILED (HTTP \$HTTP_STATUS)"
-                exit 1
-            fi
-        """
-
-        echo "✅ Deployment complete!"
-    }
-    post {
-        success {
-            echo """
-            ✅ DEPLOYED SUCCESSFULLY
-            ────────────────────────────────────────
-            App URL:    http://${EC2_HOST}:${APP_PORT}
-            Health:     http://${EC2_HOST}:${APP_PORT}/health
-            Metrics:    http://${EC2_HOST}:${APP_PORT}/metrics
-            Grafana:    http://${EC2_HOST}:3001
-            Prometheus: http://${EC2_HOST}:9090
-            Image:      ${env.DOCKER_VERSIONED}
-            ────────────────────────────────────────
-            """
-        }
-        failure {
-            echo '❌ Deploy failed — previous version still running'
-        }
-    }
-}
 
     } // end stages
 
@@ -325,26 +323,10 @@ pipeline {
             )
         }
         success {
-            echo """
-            ✅ BUILD SUCCESSFUL
-            ────────────────────────────────────────
-            Job:      ${env.JOB_NAME}
-            Build:    #${env.BUILD_NUMBER}
-            Branch:   ${env.GIT_BRANCH}
-            Image:    ${env.DOCKER_VERSIONED}
-            ────────────────────────────────────────
-            """
+            echo "✅ BUILD SUCCESSFUL — Build #${BUILD_NUMBER} — Image: ${env.DOCKER_VERSIONED}"
         }
         failure {
-            echo """
-            ❌ BUILD FAILED
-            ────────────────────────────────────────
-            Job:    ${env.JOB_NAME}
-            Build:  #${env.BUILD_NUMBER}
-            Branch: ${env.GIT_BRANCH}
-            ────────────────────────────────────────
-            Check console output for details.
-            """
+            echo "❌ BUILD FAILED — Build #${BUILD_NUMBER} — Check console output"
         }
         unstable {
             echo '⚠️ BUILD UNSTABLE — Tests passed but with warnings'
